@@ -3,7 +3,8 @@ import type { TextBlock, ToolUseBlock } from "@anthropic-ai/sdk/resources/messag
 import fs from "fs"
 import path from "path"
 import { config } from "./config.js"
-import { loadSession, appendMessage, trimSession, type Message } from "./session.js"
+import { loadSession, appendMessage, trimSession, loadSummary, type Message } from "./session.js"
+import { compactSession } from "./compaction.js"
 import { searchMemory } from "./memory.js"
 import { tools, executeTool } from "./tools.js"
 
@@ -18,13 +19,14 @@ const SOUL = fs.existsSync(soulPath)
   ? fs.readFileSync(soulPath, "utf-8").trim()
   : "You are a helpful personal AI assistant."
 
-function buildSystemPrompt(userMessage: string): string {
+function buildSystemPrompt(userMessage: string, summary?: string): string {
   const memory = searchMemory(userMessage)
   const now = new Date().toLocaleString()
 
   return [
     SOUL,
     `\nCurrent time: ${now}`,
+    summary && `\n<session_summary>\n${summary}\n</session_summary>`,
     memory && `\n<memory>\n${memory}\n</memory>`,
     `
 ## Tool rules
@@ -45,12 +47,13 @@ export async function handleMessage(
   onText: (chunk: string) => void
 ): Promise<void> {
   const history = loadSession(userId)
+  const summary = loadSummary(userId)
   const userMsg: Message = { role: "user", content: text }
 
   appendMessage(userId, userMsg)
 
   const messages: Message[] = [...trimSession(history, MAX_SESSION_MESSAGES), userMsg]
-  const systemPrompt = buildSystemPrompt(text)
+  const systemPrompt = buildSystemPrompt(text, summary)
 
   let iterations = 0
 
@@ -103,4 +106,7 @@ export async function handleMessage(
   if (iterations >= MAX_TOOL_ITERATIONS) {
     onText("\n\u26a0\ufe0f Reached tool iteration limit.")
   }
+
+  // Compact session in background after responding (non-blocking, non-fatal)
+  compactSession(userId).catch(err => console.error("Compaction error:", err))
 }

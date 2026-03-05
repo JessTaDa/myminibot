@@ -15,6 +15,8 @@ const schema = z.object({
   SESSIONS_DIR:             z.string().default("./sessions"),
   MODEL:                    z.string().default("claude-sonnet-4-5-20250929"),
   MAX_MESSAGES_PER_MINUTE:  z.coerce.number().default(20),
+  COMPACTION_THRESHOLD:     z.coerce.number().default(80),
+  COMPACTION_KEEP:          z.coerce.number().default(40),
 })
 
 export const config = schema.parse(process.env)
