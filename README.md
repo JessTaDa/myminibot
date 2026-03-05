@@ -96,9 +96,7 @@ myagent/
 ├── workspace/
 │   ├── SOUL.md       — agent personality (edit this)
 │   └── MEMORY.md     — auto-created; agent's long-term notes
-├── sessions/         — auto-created; one file per user
-└── docs/
-    └── IMPLEMENTATION.md  — full build guide
+└── sessions/         — auto-created; one file per user
 ```
 
 ---

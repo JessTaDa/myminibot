@@ -3,7 +3,7 @@
 Personal AI agent accessible via Telegram. Uses Claude as its brain. Remembers context
 across conversations. Reads/writes files in a sandboxed workspace. Single user. MVP.
 
-See `docs/IMPLEMENTATION.md` for the step-by-step build guide with full code examples.
+See `no-commit/IMPLEMENTATION.md` for the step-by-step build guide with full code examples.
 
 ---
 

@@ -17,10 +17,6 @@ function guardPath(userPath: string, mustExist: boolean): string {
     throw new Error("Access denied: path outside workspace")
   }
 
-  if (path.basename(resolved) === "SOUL.md") {
-    throw new Error("SOUL.md is read-only")
-  }
-
   // Symlink protection: resolve the real filesystem path
   if (mustExist) {
     // File must exist — resolve its real path
@@ -90,6 +86,9 @@ export function executeTool(
   }
 
   if (name === "write_file") {
+    if (path.basename(input.path) === "SOUL.md") {
+      throw new Error("SOUL.md is read-only")
+    }
     const safePath = guardPath(input.path, false)
     fs.mkdirSync(path.dirname(safePath), { recursive: true })
     fs.writeFileSync(safePath, input.content)
