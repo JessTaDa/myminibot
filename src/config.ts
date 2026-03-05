@@ -1,0 +1,20 @@
+import { z } from "zod"
+import "dotenv/config"
+
+const schema = z.object({
+  ANTHROPIC_API_KEY:  z.string().min(1),
+  TELEGRAM_BOT_TOKEN: z.string().min(1),
+  ALLOWED_USER_IDS:   z.string().min(1).transform(s =>
+    new Set(
+      s.split(",")
+        .map(id => parseInt(id.trim(), 10))
+        .filter(n => !isNaN(n))
+    )
+  ).refine(set => set.size > 0, "ALLOWED_USER_IDS must contain at least one valid integer"),
+  WORKSPACE_DIR:            z.string().default("./workspace"),
+  SESSIONS_DIR:             z.string().default("./sessions"),
+  MODEL:                    z.string().default("claude-sonnet-4-5-20250929"),
+  MAX_MESSAGES_PER_MINUTE:  z.coerce.number().default(20),
+})
+
+export const config = schema.parse(process.env)

@@ -1,0 +1,7 @@
+.env
+sessions/
+workspace/*.md
+!workspace/SOUL.md
+node_modules/
+dist/
+no-commit/
