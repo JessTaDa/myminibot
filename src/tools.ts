@@ -3,6 +3,7 @@ import path from "path"
 import type { Tool } from "@anthropic-ai/sdk/resources/messages"
 import { config } from "./config.js"
 import { appendMemory } from "./memory.js"
+import { executeCommand } from "./shell.js"
 
 const workspaceAbs = path.resolve(config.WORKSPACE_DIR)
 
@@ -72,13 +73,31 @@ export const tools: Tool[] = [
       },
       required: ["content"]
     }
-  }
+  },
+  {
+    name: "shell_exec",
+    description:
+      "Execute a shell command. Requires user approval before running. Working directory is the workspace root.",
+    input_schema: {
+      type: "object",
+      properties: {
+        command: {
+          type: "string",
+          description: "Shell command to execute",
+        },
+      },
+      required: ["command"],
+    },
+  },
 ]
 
-export function executeTool(
+export type ApprovalCallback = (command: string) => Promise<boolean>
+
+export async function executeTool(
   name: string,
-  input: Record<string, string>
-): string {
+  input: Record<string, string>,
+  onApproval?: ApprovalCallback
+): Promise<string> {
   if (name === "read_file") {
     const safePath = guardPath(input.path, true)
     if (!fs.existsSync(safePath)) return `File not found: ${input.path}`
@@ -98,6 +117,21 @@ export function executeTool(
   if (name === "memory_append") {
     appendMemory(input.content)
     return "Remembered."
+  }
+
+  if (name === "shell_exec") {
+    if (!onApproval) return "Error: Shell execution requires approval callback"
+
+    const approved = await onApproval(input.command)
+    if (!approved) return "Command denied by user."
+
+    const result = await executeCommand(input.command)
+    const parts: string[] = []
+    if (result.stdout) parts.push(`stdout:\n${result.stdout}`)
+    if (result.stderr) parts.push(`stderr:\n${result.stderr}`)
+    if (result.timedOut) parts.push("(command timed out after 30s)")
+    parts.push(`exit code: ${result.exitCode}`)
+    return parts.join("\n")
   }
 
   return `Unknown tool: ${name}`

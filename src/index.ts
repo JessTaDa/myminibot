@@ -1,4 +1,4 @@
-import { Telegraf } from "telegraf"
+import { Telegraf, Markup } from "telegraf"
 import fs from "fs"
 import { config } from "./config.js"
 import { handleMessage } from "./agent.js"
@@ -50,6 +50,39 @@ function enqueue(userId: number, task: () => Promise<void>): void {
 // Bot
 const bot = new Telegraf(config.TELEGRAM_BOT_TOKEN)
 
+// Pending approval callbacks
+const pendingApprovals = new Map<
+  string,
+  { resolve: (approved: boolean) => void; timer: ReturnType<typeof setTimeout> }
+>()
+
+// Handle approve/deny button presses
+bot.action(/^(approve|deny):(.+)$/, (ctx) => {
+  const action = ctx.match[1]
+  const approvalId = ctx.match[2]
+  const pending = pendingApprovals.get(approvalId)
+
+  if (!pending) {
+    ctx.answerCbQuery("Expired.").catch(() => {})
+    return
+  }
+
+  clearTimeout(pending.timer)
+  pendingApprovals.delete(approvalId)
+
+  const approved = action === "approve"
+  pending.resolve(approved)
+
+  const messageText =
+    ctx.callbackQuery.message && "text" in ctx.callbackQuery.message
+      ? ctx.callbackQuery.message.text
+      : ""
+  ctx.editMessageText(messageText + `\n\n${approved ? "\u2705 Approved" : "\u274c Denied"}`).catch(
+    () => {}
+  )
+  ctx.answerCbQuery(approved ? "Approved" : "Denied").catch(() => {})
+})
+
 bot.on("text", (ctx) => {
   const userId = ctx.from.id
   const text   = ctx.message.text
@@ -66,8 +99,40 @@ bot.on("text", (ctx) => {
     await ctx.sendChatAction("typing")
     let reply = ""
 
+    const onApproval = async (command: string): Promise<boolean> => {
+      const approvalId = `${userId}_${Date.now()}`
+
+      const msg = await ctx.reply(
+        `\ud83d\udd27 Shell command:\n\`\`\`\n${command}\n\`\`\`\nApprove?`,
+        {
+          parse_mode: "Markdown",
+          ...Markup.inlineKeyboard([
+            Markup.button.callback("\u2705 Approve", `approve:${approvalId}`),
+            Markup.button.callback("\u274c Deny", `deny:${approvalId}`),
+          ]),
+        }
+      )
+
+      return new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => {
+          pendingApprovals.delete(approvalId)
+          resolve(false)
+          ctx.telegram
+            .editMessageText(
+              ctx.chat.id,
+              msg.message_id,
+              undefined,
+              `\ud83d\udd27 Shell command:\n\`\`\`\n${command}\n\`\`\`\n\n\u23f0 Auto-denied (timeout)`
+            )
+            .catch(() => {})
+        }, 60_000)
+
+        pendingApprovals.set(approvalId, { resolve, timer })
+      })
+    }
+
     try {
-      await handleMessage(userId, text, chunk => { reply += chunk })
+      await handleMessage(userId, text, chunk => { reply += chunk }, onApproval)
     } catch (err) {
       console.error("Agent error:", err)
       reply = "Something went wrong."

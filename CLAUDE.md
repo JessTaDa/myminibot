@@ -26,6 +26,7 @@ src/
   session.ts    ← Message type (= Anthropic MessageParam) + JSONL storage
   memory.ts     ← MEMORY.md read / append / keyword search
   tools.ts      ← read_file, write_file, memory_append; path guard lives here
+  shell.ts    ← shell command execution with timeout and output cap
   agent.ts      ← system prompt + tool loop + handleMessage
 workspace/
   SOUL.md       ← agent personality; read-only to the agent
@@ -57,7 +58,7 @@ Telegram (long polling — no exposed port)
        ↓
   [Agent runtime]      agent.ts — system prompt + session + memory → LLM → tool loop
        ↓
-  [Tools]              tools.ts — read_file, write_file (workspace only), memory_append
+  [Tools]              tools.ts — read_file, write_file (workspace only), memory_append, shell_exec (with approval)
 ```
 
 No HTTP server. No WebSocket server. No shell execution (v2 feature).
@@ -71,7 +72,7 @@ No HTTP server. No WebSocket server. No shell execution (v2 feature).
 - **All file paths MUST go through `guardPath()`** which enforces workspace boundary via `path.resolve()`
 - **Tool loop MUST have a hard iteration cap** (MAX_TOOL_ITERATIONS = 10). No unbounded while loops
 - **Secrets in .env only.** Never hardcode tokens. Never log them
-- **No shell tool in v1.** Do not add it, regardless of how convenient it seems
+- **Shell commands require human approval.** Every `shell_exec` shows the command via inline keyboard; 60s auto-deny timeout. Approval IS the security boundary
 
 ---
 
