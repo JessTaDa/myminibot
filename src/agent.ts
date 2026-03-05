@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk"
-import type { TextBlock, ToolUseBlock } from "@anthropic-ai/sdk/resources/messages"
+import type { ToolUseBlock } from "@anthropic-ai/sdk/resources/messages"
 import fs from "fs"
 import path from "path"
 import { config } from "./config.js"
@@ -43,12 +43,18 @@ function buildSystemPrompt(userMessage: string, summary?: string): string {
   ].filter(Boolean).join("\n")
 }
 
+export interface HandleMessageCallbacks {
+  onDelta: (token: string) => void
+  onIterationEnd: () => void
+  onApproval?: ApprovalCallback
+}
+
 export async function handleMessage(
   userId: number,
   text: string,
-  onText: (chunk: string) => void,
-  onApproval?: ApprovalCallback
+  callbacks: HandleMessageCallbacks
 ): Promise<void> {
+  const { onDelta, onIterationEnd, onApproval } = callbacks
   const history = loadSession(userId)
   const summary = loadSummary(userId)
   const userMsg: Message = { role: "user", content: text }
@@ -63,7 +69,7 @@ export async function handleMessage(
   while (iterations < MAX_TOOL_ITERATIONS) {
     iterations++
 
-    const response = await client.messages.create({
+    const stream = client.messages.stream({
       model:      config.MODEL,
       max_tokens: 4096,
       system:     systemPrompt,
@@ -71,12 +77,11 @@ export async function handleMessage(
       messages,
     })
 
-    // No cast needed — type guards narrow ContentBlock[] directly
-    const responseText = response.content
-      .filter((b): b is TextBlock => b.type === "text")
-      .map(b => b.text)
-      .join("")
-    if (responseText) onText(responseText)
+    stream.on("text", (token) => onDelta(token))
+
+    const response = await stream.finalMessage()
+
+    onIterationEnd()
 
     const assistantMsg: Message = { role: "assistant", content: response.content }
     messages.push(assistantMsg)
@@ -109,7 +114,8 @@ export async function handleMessage(
   }
 
   if (iterations >= MAX_TOOL_ITERATIONS) {
-    onText("\n\u26a0\ufe0f Reached tool iteration limit.")
+    onDelta("\n⚠️ Reached tool iteration limit.")
+    onIterationEnd()
   }
 
   // Compact session in background after responding (non-blocking, non-fatal)

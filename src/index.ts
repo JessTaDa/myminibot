@@ -2,6 +2,7 @@ import { Telegraf, Markup } from "telegraf"
 import fs from "fs"
 import { config } from "./config.js"
 import { handleMessage } from "./agent.js"
+import { TelegramStreamSink } from "./stream.js"
 
 // Create directories once at startup
 fs.mkdirSync(config.SESSIONS_DIR,  { recursive: true })
@@ -77,7 +78,7 @@ bot.action(/^(approve|deny):(.+)$/, (ctx) => {
     ctx.callbackQuery.message && "text" in ctx.callbackQuery.message
       ? ctx.callbackQuery.message.text
       : ""
-  ctx.editMessageText(messageText + `\n\n${approved ? "\u2705 Approved" : "\u274c Denied"}`).catch(
+  ctx.editMessageText(messageText + `\n\n${approved ? "✅ Approved" : "❌ Denied"}`).catch(
     () => {}
   )
   ctx.answerCbQuery(approved ? "Approved" : "Denied").catch(() => {})
@@ -97,18 +98,19 @@ bot.on("text", (ctx) => {
 
   enqueue(userId, async () => {
     await ctx.sendChatAction("typing")
-    let reply = ""
+
+    const sink = new TelegramStreamSink(ctx.chat.id, ctx.telegram)
 
     const onApproval = async (command: string): Promise<boolean> => {
       const approvalId = `${userId}_${Date.now()}`
 
       const msg = await ctx.reply(
-        `\ud83d\udd27 Shell command:\n\`\`\`\n${command}\n\`\`\`\nApprove?`,
+        `🔧 Shell command:\n\`\`\`\n${command}\n\`\`\`\nApprove?`,
         {
           parse_mode: "Markdown",
           ...Markup.inlineKeyboard([
-            Markup.button.callback("\u2705 Approve", `approve:${approvalId}`),
-            Markup.button.callback("\u274c Deny", `deny:${approvalId}`),
+            Markup.button.callback("✅ Approve", `approve:${approvalId}`),
+            Markup.button.callback("❌ Deny", `deny:${approvalId}`),
           ]),
         }
       )
@@ -122,7 +124,7 @@ bot.on("text", (ctx) => {
               ctx.chat.id,
               msg.message_id,
               undefined,
-              `\ud83d\udd27 Shell command:\n\`\`\`\n${command}\n\`\`\`\n\n\u23f0 Auto-denied (timeout)`
+              `🔧 Shell command:\n\`\`\`\n${command}\n\`\`\`\n\n⏰ Auto-denied (timeout)`
             )
             .catch(() => {})
         }, 60_000)
@@ -132,24 +134,17 @@ bot.on("text", (ctx) => {
     }
 
     try {
-      await handleMessage(userId, text, chunk => { reply += chunk }, onApproval)
+      await handleMessage(userId, text, {
+        onDelta: (token) => { sink.push(token).catch(() => {}) },
+        onIterationEnd: () => { sink.newIteration().catch(() => {}) },
+        onApproval,
+      })
     } catch (err) {
       console.error("Agent error:", err)
-      reply = "Something went wrong."
+      await sink.push("Something went wrong.")
     }
 
-    if (!reply) return
-
-    // Telegram message limit: 4096 chars
-    for (let i = 0; i < reply.length; i += 4000) {
-      const chunk = reply.slice(i, i + 4000)
-      try {
-        await ctx.reply(chunk, { parse_mode: "Markdown" })
-      } catch {
-        // Markdown parse error (unmatched formatting chars) — retry as plain text
-        await ctx.reply(chunk)
-      }
-    }
+    await sink.finish()
   })
 })
 
