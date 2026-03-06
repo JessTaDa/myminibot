@@ -5,6 +5,7 @@ import { config } from "./config.js"
 import { appendMemory } from "./memory.js"
 import { executeCommand } from "./shell.js"
 import { searchWorkspace } from "./workspace-search.js"
+import { exaSearch } from "./web-search.js"
 
 const workspaceAbs = path.resolve(config.WORKSPACE_DIR)
 
@@ -114,6 +115,20 @@ const _tools: Tool[] = [
   },
 ]
 
+if (config.EXA_API_KEY) {
+  _tools.push({
+    name: "web_search",
+    description: "Search the web using Exa. Returns top 5 results with title, URL, and snippet.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" }
+      },
+      required: ["query"]
+    }
+  })
+}
+
 export const tools: Tool[] = _tools
 
 export type ApprovalCallback = (command: string) => Promise<boolean>
@@ -166,6 +181,12 @@ export async function executeTool(
 
   if (name === "think") {
     return "[Thought recorded]"
+  }
+
+  if (name === "web_search") {
+    const results = await exaSearch(String(input.query))
+    if (results.length === 0) return "No results found."
+    return results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.description}`).join("\n\n")
   }
 
   if (name === "workspace_search") {
