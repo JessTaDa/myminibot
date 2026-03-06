@@ -5,6 +5,7 @@ import fs from "fs"
 import { config } from "./config.js"
 import { handleMessage, type UserContent } from "./agent.js"
 import { TelegramStreamSink } from "./stream.js"
+import { initReminders } from "./reminders.js"
 
 // Create directories once at startup
 fs.mkdirSync(config.SESSIONS_DIR,  { recursive: true })
@@ -52,6 +53,9 @@ function enqueue(userId: number, task: () => Promise<void>): void {
 
 // Bot
 const bot = new Telegraf(config.TELEGRAM_BOT_TOKEN)
+
+// Init reminders with Telegram send function
+initReminders((chatId, text) => bot.telegram.sendMessage(chatId, text).then(() => {}))
 
 // Pending approval callbacks
 const pendingApprovals = new Map<

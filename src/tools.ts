@@ -6,6 +6,7 @@ import { appendMemory } from "./memory.js"
 import { executeCommand } from "./shell.js"
 import { searchWorkspace } from "./workspace-search.js"
 import { exaSearch } from "./web-search.js"
+import { setReminder, listReminders, cancelReminder } from "./reminders.js"
 
 const workspaceAbs = path.resolve(config.WORKSPACE_DIR)
 
@@ -115,6 +116,40 @@ const _tools: Tool[] = [
   },
 ]
 
+_tools.push(
+  {
+    name: "set_reminder",
+    description: "Set a reminder that will be sent to the user after a delay. Max delay is 24 hours.",
+    input_schema: {
+      type: "object",
+      properties: {
+        message: { type: "string", description: "Reminder message" },
+        delay_seconds: { type: "number", description: "Delay in seconds before the reminder fires" }
+      },
+      required: ["message", "delay_seconds"]
+    }
+  },
+  {
+    name: "list_reminders",
+    description: "List all active reminders for the current user.",
+    input_schema: {
+      type: "object",
+      properties: {}
+    }
+  },
+  {
+    name: "cancel_reminder",
+    description: "Cancel an active reminder by its ID.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Reminder ID to cancel" }
+      },
+      required: ["id"]
+    }
+  },
+)
+
 if (config.EXA_API_KEY) {
   _tools.push({
     name: "web_search",
@@ -191,6 +226,24 @@ export async function executeTool(
 
   if (name === "workspace_search") {
     return searchWorkspace(String(input.query))
+  }
+
+  if (name === "set_reminder") {
+    if (!ctx) return "Error: Reminder requires chat context"
+    const id = setReminder(ctx.chatId, String(input.message), Number(input.delay_seconds))
+    return `Reminder set (id: ${id}). Will fire in ${input.delay_seconds} seconds.`
+  }
+
+  if (name === "list_reminders") {
+    if (!ctx) return "Error: Reminder requires chat context"
+    const list = listReminders(ctx.chatId)
+    if (list.length === 0) return "No active reminders."
+    return list.map(r => `- ${r.id}: "${r.message}" (in ${r.remainingSec}s)`).join("\n")
+  }
+
+  if (name === "cancel_reminder") {
+    const cancelled = cancelReminder(String(input.id))
+    return cancelled ? "Reminder cancelled." : "Reminder not found (may have already fired)."
   }
 
   return `Unknown tool: ${name}`
