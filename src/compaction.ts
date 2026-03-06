@@ -19,6 +19,8 @@ function formatMessages(messages: Message[]): string {
       if (Array.isArray(m.content)) {
         return m.content
           .map((block) => {
+            if ("type" in block && block.type === "image") return `${m.role}: [sent an image]`
+            if ("type" in block && block.type === "document") return `${m.role}: [sent a document]`
             if ("text" in block) return `${m.role}: ${block.text}`
             if ("type" in block && block.type === "tool_result") {
               return `tool_result: ${typeof block.content === "string" ? block.content : "[complex]"}`

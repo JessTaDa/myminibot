@@ -17,6 +17,8 @@ const schema = z.object({
   MAX_MESSAGES_PER_MINUTE:  z.coerce.number().default(20),
   COMPACTION_THRESHOLD:     z.coerce.number().default(80),
   COMPACTION_KEEP:          z.coerce.number().default(40),
+  EXA_API_KEY:              z.string().optional(),
+  MAX_FILE_SIZE:            z.coerce.number().default(10_485_760),
 })
 
 export const config = schema.parse(process.env)

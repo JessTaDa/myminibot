@@ -39,7 +39,7 @@ function guardPath(userPath: string, mustExist: boolean): string {
   return resolved
 }
 
-export const tools: Tool[] = [
+const _tools: Tool[] = [
   {
     name: "read_file",
     description: "Read a file from the workspace. Path is relative to workspace root.",
@@ -91,41 +91,48 @@ export const tools: Tool[] = [
   },
 ]
 
+export const tools: Tool[] = _tools
+
 export type ApprovalCallback = (command: string) => Promise<boolean>
+
+export interface ToolContext {
+  chatId: number
+  onApproval?: ApprovalCallback
+}
 
 export async function executeTool(
   name: string,
-  input: Record<string, string>,
-  onApproval?: ApprovalCallback
+  input: Record<string, unknown>,
+  ctx?: ToolContext
 ): Promise<string> {
   if (name === "read_file") {
-    const safePath = guardPath(input.path, true)
+    const safePath = guardPath(String(input.path), true)
     if (!fs.existsSync(safePath)) return `File not found: ${input.path}`
     return fs.readFileSync(safePath, "utf-8")
   }
 
   if (name === "write_file") {
-    if (path.basename(input.path) === "SOUL.md") {
+    if (path.basename(String(input.path)) === "SOUL.md") {
       throw new Error("SOUL.md is read-only")
     }
-    const safePath = guardPath(input.path, false)
+    const safePath = guardPath(String(input.path), false)
     fs.mkdirSync(path.dirname(safePath), { recursive: true })
-    fs.writeFileSync(safePath, input.content)
+    fs.writeFileSync(safePath, String(input.content))
     return `Written: ${input.path}`
   }
 
   if (name === "memory_append") {
-    appendMemory(input.content)
+    appendMemory(String(input.content))
     return "Remembered."
   }
 
   if (name === "shell_exec") {
-    if (!onApproval) return "Error: Shell execution requires approval callback"
+    if (!ctx?.onApproval) return "Error: Shell execution requires approval callback"
 
-    const approved = await onApproval(input.command)
+    const approved = await ctx.onApproval(String(input.command))
     if (!approved) return "Command denied by user."
 
-    const result = await executeCommand(input.command)
+    const result = await executeCommand(String(input.command))
     const parts: string[] = []
     if (result.stdout) parts.push(`stdout:\n${result.stdout}`)
     if (result.stderr) parts.push(`stderr:\n${result.stderr}`)

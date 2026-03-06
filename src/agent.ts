@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk"
-import type { ToolUseBlock } from "@anthropic-ai/sdk/resources/messages"
+import type { ToolUseBlock, ContentBlockParam, TextBlockParam } from "@anthropic-ai/sdk/resources/messages"
 import fs from "fs"
 import path from "path"
 import { config } from "./config.js"
@@ -7,6 +7,8 @@ import { loadSession, appendMessage, trimSession, loadSummary, type Message } fr
 import { compactSession } from "./compaction.js"
 import { searchMemory } from "./memory.js"
 import { tools, executeTool, type ApprovalCallback } from "./tools.js"
+
+export type UserContent = string | ContentBlockParam[]
 
 const client = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY })
 
@@ -51,18 +53,21 @@ export interface HandleMessageCallbacks {
 
 export async function handleMessage(
   userId: number,
-  text: string,
+  content: UserContent,
   callbacks: HandleMessageCallbacks
 ): Promise<void> {
   const { onDelta, onIterationEnd, onApproval } = callbacks
   const history = loadSession(userId)
   const summary = loadSummary(userId)
-  const userMsg: Message = { role: "user", content: text }
+  const userMsg: Message = { role: "user", content }
 
   appendMessage(userId, userMsg)
 
   const messages: Message[] = [...trimSession(history, MAX_SESSION_MESSAGES), userMsg]
-  const systemPrompt = buildSystemPrompt(text, summary)
+  const searchText = typeof content === "string"
+    ? content
+    : content.filter((b): b is TextBlockParam => b.type === "text").map(b => b.text).join(" ")
+  const systemPrompt = buildSystemPrompt(searchText, summary)
 
   let iterations = 0
 
@@ -97,7 +102,7 @@ export async function handleMessage(
       for (const block of toolBlocks) {
         let content: string
         try {
-          content = await executeTool(block.name, block.input as Record<string, string>, onApproval)
+          content = await executeTool(block.name, block.input as Record<string, unknown>, { chatId: userId, onApproval })
         } catch (err: unknown) {
           content = `Error: ${err instanceof Error ? err.message : String(err)}`
         }
