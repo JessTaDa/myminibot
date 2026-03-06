@@ -4,6 +4,7 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages"
 import { config } from "./config.js"
 import { appendMemory } from "./memory.js"
 import { executeCommand } from "./shell.js"
+import { searchWorkspace } from "./workspace-search.js"
 
 const workspaceAbs = path.resolve(config.WORKSPACE_DIR)
 
@@ -89,6 +90,28 @@ const _tools: Tool[] = [
       required: ["command"],
     },
   },
+  {
+    name: "think",
+    description: "Use this tool to think step-by-step about a problem. Your thoughts are private and not shown to the user. Use it to plan, reason, or break down complex tasks before responding.",
+    input_schema: {
+      type: "object",
+      properties: {
+        thought: { type: "string", description: "Your step-by-step reasoning" }
+      },
+      required: ["thought"]
+    }
+  },
+  {
+    name: "workspace_search",
+    description: "Search across all workspace files using keyword matching. Returns the most relevant text chunks. Use this to find information in the workspace when you don't know which file to look in.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search keywords" }
+      },
+      required: ["query"]
+    }
+  },
 ]
 
 export const tools: Tool[] = _tools
@@ -139,6 +162,14 @@ export async function executeTool(
     if (result.timedOut) parts.push("(command timed out after 30s)")
     parts.push(`exit code: ${result.exitCode}`)
     return parts.join("\n")
+  }
+
+  if (name === "think") {
+    return "[Thought recorded]"
+  }
+
+  if (name === "workspace_search") {
+    return searchWorkspace(String(input.query))
   }
 
   return `Unknown tool: ${name}`
