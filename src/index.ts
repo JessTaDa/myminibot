@@ -1,7 +1,9 @@
 import { Telegraf, Markup } from "telegraf"
+import type { Context } from "telegraf"
+import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages"
 import fs from "fs"
 import { config } from "./config.js"
-import { handleMessage } from "./agent.js"
+import { handleMessage, type UserContent } from "./agent.js"
 import { TelegramStreamSink } from "./stream.js"
 
 // Create directories once at startup
@@ -84,11 +86,9 @@ bot.action(/^(approve|deny):(.+)$/, (ctx) => {
   ctx.answerCbQuery(approved ? "Approved" : "Denied").catch(() => {})
 })
 
-bot.on("text", (ctx) => {
-  const userId = ctx.from.id
-  const text   = ctx.message.text
+function processMessage(ctx: Context, content: UserContent): void {
+  const userId = ctx.from!.id
 
-  // Drop unauthorized users silently — replying would confirm the bot exists
   if (!isAllowed(userId)) return
 
   if (isRateLimited(userId)) {
@@ -99,7 +99,7 @@ bot.on("text", (ctx) => {
   enqueue(userId, async () => {
     await ctx.sendChatAction("typing")
 
-    const sink = new TelegramStreamSink(ctx.chat.id, ctx.telegram)
+    const sink = new TelegramStreamSink(ctx.chat!.id, ctx.telegram)
 
     const onApproval = async (command: string): Promise<boolean> => {
       const approvalId = `${userId}_${Date.now()}`
@@ -121,7 +121,7 @@ bot.on("text", (ctx) => {
           resolve(false)
           ctx.telegram
             .editMessageText(
-              ctx.chat.id,
+              ctx.chat!.id,
               msg.message_id,
               undefined,
               `🔧 Shell command:\n\`\`\`\n${command}\n\`\`\`\n\n⏰ Auto-denied (timeout)`
@@ -134,7 +134,7 @@ bot.on("text", (ctx) => {
     }
 
     try {
-      await handleMessage(userId, text, {
+      await handleMessage(userId, content, {
         onDelta: (token) => { sink.push(token).catch(() => {}) },
         onIterationEnd: () => { sink.newIteration().catch(() => {}) },
         onApproval,
@@ -145,6 +145,102 @@ bot.on("text", (ctx) => {
     }
 
     await sink.finish()
+  })
+}
+
+bot.on("text", (ctx) => {
+  processMessage(ctx, ctx.message.text)
+})
+
+bot.on("photo", (ctx) => {
+  const photos = ctx.message.photo
+  const largest = photos[photos.length - 1]
+
+  if (!isAllowed(ctx.from.id)) return
+
+  enqueue(ctx.from.id, async () => {
+    try {
+      const fileLink = await ctx.telegram.getFileLink(largest.file_id)
+      const res = await fetch(fileLink.href)
+      if (!res.ok) throw new Error(`Failed to download photo: ${res.status}`)
+
+      const buf = Buffer.from(await res.arrayBuffer())
+      if (buf.length > config.MAX_FILE_SIZE) {
+        await ctx.reply("Photo too large (max 10MB).")
+        return
+      }
+
+      const blocks: ContentBlockParam[] = [
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/jpeg", data: buf.toString("base64") },
+        },
+      ]
+
+      const caption = ctx.message.caption
+      if (caption) {
+        blocks.push({ type: "text", text: caption })
+      }
+
+      processMessage(ctx, blocks)
+    } catch (err) {
+      console.error("Photo handling error:", err)
+      await ctx.reply("Failed to process photo.")
+    }
+  })
+})
+
+bot.on("document", (ctx) => {
+  const doc = ctx.message.document
+
+  if (!isAllowed(ctx.from.id)) return
+
+  const mime = doc.mime_type ?? ""
+  const isImage = mime.startsWith("image/")
+  const isPdf = mime === "application/pdf"
+
+  if (!isImage && !isPdf) {
+    ctx.reply("Unsupported file type. I can handle images and PDFs.").catch(() => {})
+    return
+  }
+
+  enqueue(ctx.from.id, async () => {
+    try {
+      const fileLink = await ctx.telegram.getFileLink(doc.file_id)
+      const res = await fetch(fileLink.href)
+      if (!res.ok) throw new Error(`Failed to download document: ${res.status}`)
+
+      const buf = Buffer.from(await res.arrayBuffer())
+      if (buf.length > config.MAX_FILE_SIZE) {
+        await ctx.reply("File too large (max 10MB).")
+        return
+      }
+
+      const blocks: ContentBlockParam[] = []
+
+      if (isPdf) {
+        blocks.push({
+          type: "document",
+          source: { type: "base64", media_type: "application/pdf", data: buf.toString("base64") },
+        })
+      } else {
+        const imageMediaType = mime as "image/jpeg" | "image/png" | "image/gif" | "image/webp"
+        blocks.push({
+          type: "image",
+          source: { type: "base64", media_type: imageMediaType, data: buf.toString("base64") },
+        })
+      }
+
+      const caption = ctx.message.caption
+      if (caption) {
+        blocks.push({ type: "text", text: caption })
+      }
+
+      processMessage(ctx, blocks)
+    } catch (err) {
+      console.error("Document handling error:", err)
+      await ctx.reply("Failed to process file.")
+    }
   })
 })
 
